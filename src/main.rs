@@ -1,321 +1,619 @@
 fn main() {}
 
 type Scaler = isize;
-
 #[derive(Debug, Clone, PartialEq)]
 enum Base {
-    SCALER(Scaler),
+    Scaler(Scaler),
     X(X),
-    EXP(Exp),
-    POW(Pow),
-    LOG(Log),
-    SIN(Sin),
-    COS(Cos),
-    TAN(Tan),
+    Exp(Exp),
+    Pow(Pow),
+    Log(Log),
+    Sin(Sin),
+    Cos(Cos),
+    Tan(Tan),
 }
 
 impl Base {
-    fn diff(&self) -> Monomial {
+    fn diff(&self) -> Expression {
         match self {
-            Self::SCALER(_) => vec![Self::SCALER(0)],
+            Self::Scaler(_) => Expression::Base(Base::Scaler(0)),
             Self::X(x) => x.diff(),
-            Self::EXP(exp) => exp.diff(),
-            Self::POW(pow) => pow.diff(),
-            Self::LOG(log) => log.diff(),
-            Self::SIN(sin) => sin.diff(),
-            Self::COS(cos) => cos.diff(),
-            Self::TAN(tan) => tan.diff(),
+            Self::Exp(exp) => exp.diff(),
+            Self::Pow(pow) => pow.diff(),
+            Self::Log(log) => log.diff(),
+            Self::Sin(sin) => sin.diff(),
+            Self::Cos(cos) => cos.diff(),
+            Self::Tan(tan) => tan.diff(),
+        }
+    }
+}
+
+type Add = Vec<Expression>;
+type Mul = Vec<Expression>;
+
+#[derive(Debug, Clone, PartialEq)]
+enum Expression {
+    Base(Base),
+    Add(Add),
+    Mul(Mul),
+}
+
+impl Expression {
+    fn diff(&self) -> Expression {
+        match self {
+            Self::Base(base) => base.diff(),
+            Self::Add(add) => Self::Add(add.iter().map(|e| e.diff()).collect()),
+            Self::Mul(mul) => {
+                let mut expressions = vec![];
+                for i in 0..mul.len() {
+                    let mut row = vec![];
+                    for (j, expression) in mul.iter().enumerate() {
+                        if i == j {
+                            row.push(expression.diff())
+                        } else {
+                            row.push(expression.clone())
+                        }
+                    }
+                    expressions.push(Self::Mul(row));
+                }
+                Self::Add(expressions)
+            }
         }
     }
 }
 
 trait DiffBase {
-    fn diff(&self) -> Monomial;
+    fn diff(&self) -> Expression;
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct X {}
 
 impl DiffBase for X {
-    fn diff(&self) -> Monomial {
-        vec![Base::SCALER(1)]
+    fn diff(&self) -> Expression {
+        Expression::Base(Base::Scaler(1))
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Exp {
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Exp {
-    fn diff(&self) -> Monomial {
-        let mut mono = vec![Base::EXP(self.clone())];
-        mono.extend(self.arg.diff());
-        mono
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Exp(self.clone())),
+            self.arg.diff(),
+        ])
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Pow {
     exp: isize,
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Pow {
-    fn diff(&self) -> Monomial {
-        let mut mono = if self.exp == 1 {
-            vec![]
-        } else {
-            vec![
-                Base::SCALER(self.exp),
-                Base::POW(Pow {
-                    exp: self.exp - 1,
-                    arg: self.arg.clone(),
-                }),
-            ]
-        };
-        mono.extend(self.arg.diff());
-        mono
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Scaler(self.exp)),
+            Expression::Base(Base::Pow(Pow {
+                exp: self.exp - 1,
+                arg: self.arg.clone(),
+            })),
+            self.arg.diff(),
+        ])
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Log {
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Log {
-    fn diff(&self) -> Monomial {
-        let mut mono = vec![Base::POW(Pow {
-            exp: -1,
-            arg: self.arg.clone(),
-        })];
-        mono.extend(self.arg.diff());
-        mono
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Pow(Pow {
+                exp: -1,
+                arg: self.arg.clone(),
+            })),
+            self.arg.diff(),
+        ])
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Sin {
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Sin {
-    fn diff(&self) -> Monomial {
-        let mut mono = vec![Base::COS(Cos {
-            arg: self.arg.clone(),
-        })];
-        mono.extend(self.arg.diff());
-        mono
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Cos(Cos {
+                arg: self.arg.clone(),
+            })),
+            self.arg.diff(),
+        ])
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Cos {
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Cos {
-    fn diff(&self) -> Monomial {
-        let mut mono = vec![
-            Base::SCALER(-1),
-            Base::SIN(Sin {
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Scaler(-1)),
+            Expression::Base(Base::Sin(Sin {
                 arg: self.arg.clone(),
-            }),
-        ];
-        mono.extend(self.arg.diff());
-        mono
+            })),
+            self.arg.diff(),
+        ])
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Tan {
-    arg: Box<Base>,
+    arg: Box<Expression>,
 }
 
 impl DiffBase for Tan {
-    fn diff(&self) -> Monomial {
-        let mut mono = vec![Base::POW(Pow {
-            exp: -2,
-            arg: Box::new(Base::COS(Cos {
-                arg: self.arg.clone(),
+    fn diff(&self) -> Expression {
+        Expression::Mul(vec![
+            Expression::Base(Base::Pow(Pow {
+                exp: -2,
+                arg: Box::new(Expression::Base(Base::Cos(Cos {
+                    arg: self.arg.clone(),
+                }))),
             })),
-        })];
-        mono.extend(self.arg.diff());
-        mono
+            self.arg.diff(),
+        ])
     }
 }
 
-type Monomial = Vec<Base>;
-// type Polynomial = Vec<Monomial>;
-
 #[cfg(test)]
 mod tests {
-    use crate::{Base, Cos, Exp, Log, Pow, Sin, Tan, X};
+    use crate::{Base, Cos, Exp, Expression, Log, Pow, Sin, Tan, X};
 
     #[test]
     fn test_diff() {
         let cases = [
-            (Base::SCALER(0), vec![Base::SCALER(0)]),
-            (Base::SCALER(1), vec![Base::SCALER(0)]),
-            (Base::X(X {}), vec![Base::SCALER(1)]),
             (
-                Base::EXP(Exp {
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![
-                    Base::EXP(Exp {
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                Expression::Base(Base::Scaler(0)),
+                Expression::Base(Base::Scaler(0)),
             ),
             (
-                Base::POW(Pow {
+                Expression::Base(Base::Scaler(1)),
+                Expression::Base(Base::Scaler(0)),
+            ),
+            (
+                Expression::Base(Base::X(X {})),
+                Expression::Base(Base::Scaler(1)),
+            ),
+            (
+                Expression::Base(Base::Exp(Exp {
+                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Exp(Exp {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    })),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
+            ),
+            (
+                Expression::Base(Base::Pow(Pow {
                     exp: 1,
-                    arg: Box::new(Base::SCALER(1)),
-                }),
-                vec![Base::SCALER(0)],
+                    arg: Box::new(Expression::Base(Base::Scaler(1))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Scaler(1)),
+                    Expression::Base(Base::Pow(Pow {
+                        exp: 0,
+                        arg: Box::new(Expression::Base(Base::Scaler(1))),
+                    })),
+                    Expression::Base(Base::Scaler(0)),
+                ]),
             ),
             (
-                Base::POW(Pow {
+                Expression::Base(Base::Pow(Pow {
                     exp: 1,
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![Base::SCALER(1)],
+                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Scaler(1)),
+                    Expression::Base(Base::Pow(Pow {
+                        exp: 0,
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    })),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
             ),
             (
-                Base::POW(Pow {
-                    exp: 2,
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![
-                    Base::SCALER(2),
-                    Base::POW(Pow {
-                        exp: 1,
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
-            ),
-            (
-                Base::LOG(Log {
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![
-                    Base::POW(Pow {
+                Expression::Base(Base::Log(Log {
+                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Pow(Pow {
                         exp: -1,
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    })),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
             ),
             (
-                Base::SIN(Sin {
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![
-                    Base::COS(Cos {
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                Expression::Base(Base::Sin(Sin {
+                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Cos(Cos {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    })),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
             ),
             (
-                Base::TAN(Tan {
-                    arg: Box::new(Base::X(X {})),
-                }),
-                vec![
-                    Base::POW(Pow {
+                Expression::Base(Base::Tan(Tan {
+                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Pow(Pow {
                         exp: -2,
-                        arg: Box::new(Base::COS(Cos {
-                            arg: Box::new(Base::X(X {})),
-                        })),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        arg: Box::new(Expression::Base(Base::Cos(Cos {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        }))),
+                    })),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
             ),
             (
-                Base::EXP(Exp {
-                    arg: Box::new(Base::POW(Pow {
+                Expression::Base(Base::Exp(Exp {
+                    arg: Box::new(Expression::Base(Base::Pow(Pow {
                         exp: 2,
-                        arg: Box::new(Base::X(X {})),
-                    })),
-                }),
-                vec![
-                    Base::EXP(Exp {
-                        arg: Box::new(Base::POW(Pow {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    }))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Exp(Exp {
+                        arg: Box::new(Expression::Base(Base::Pow(Pow {
                             exp: 2,
-                            arg: Box::new(Base::X(X {})),
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        }))),
+                    })),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Scaler(2)),
+                        Expression::Base(Base::Pow(Pow {
+                            exp: 1,
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
                         })),
-                    }),
-                    Base::SCALER(2),
-                    Base::POW(Pow {
-                        exp: 1,
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        Expression::Base(Base::Scaler(1)),
+                    ]),
+                ]),
             ),
             (
-                Base::EXP(Exp {
-                    arg: Box::new(Base::LOG(Log {
-                        arg: Box::new(Base::X(X {})),
+                Expression::Base(Base::Exp(Exp {
+                    arg: Box::new(Expression::Base(Base::Log(Log {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    }))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Exp(Exp {
+                        arg: Box::new(Expression::Base(Base::Log(Log {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        }))),
                     })),
-                }),
-                vec![
-                    Base::EXP(Exp {
-                        arg: Box::new(Base::LOG(Log {
-                            arg: Box::new(Base::X(X {})),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Pow(Pow {
+                            exp: -1,
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
                         })),
-                    }),
-                    Base::POW(Pow {
-                        exp: -1,
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        Expression::Base(Base::Scaler(1)),
+                    ]),
+                ]),
             ),
             (
-                Base::SIN(Sin {
-                    arg: Box::new(Base::COS(Cos {
-                        arg: Box::new(Base::X(X {})),
+                Expression::Base(Base::Sin(Sin {
+                    arg: Box::new(Expression::Base(Base::Cos(Cos {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    }))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Cos(Cos {
+                        arg: Box::new(Expression::Base(Base::Cos(Cos {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        }))),
                     })),
-                }),
-                vec![
-                    Base::COS(Cos {
-                        arg: Box::new(Base::COS(Cos {
-                            arg: Box::new(Base::X(X {})),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Scaler(-1)),
+                        Expression::Base(Base::Sin(Sin {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
                         })),
-                    }),
-                    Base::SCALER(-1),
-                    Base::SIN(Sin {
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        Expression::Base(Base::Scaler(1)),
+                    ]),
+                ]),
             ),
             (
-                Base::TAN(Tan {
-                    arg: Box::new(Base::LOG(Log {
-                        arg: Box::new(Base::X(X {})),
-                    })),
-                }),
-                vec![
-                    Base::POW(Pow {
+                Expression::Base(Base::Tan(Tan {
+                    arg: Box::new(Expression::Base(Base::Log(Log {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    }))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Pow(Pow {
                         exp: -2,
-                        arg: Box::new(Base::COS(Cos {
-                            arg: Box::new(Base::LOG(Log {
-                                arg: Box::new(Base::X(X {})),
-                            })),
+                        arg: Box::new(Expression::Base(Base::Cos(Cos {
+                            arg: Box::new(Expression::Base(Base::Log(Log {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            }))),
+                        }))),
+                    })),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Pow(Pow {
+                            exp: -1,
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
                         })),
-                    }),
-                    Base::POW(Pow {
+                        Expression::Base(Base::Scaler(1)),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Add(vec![Expression::Base(Base::Scaler(1))]),
+                Expression::Add(vec![Expression::Base(Base::Scaler(0))]),
+            ),
+            (
+                Expression::Mul(vec![Expression::Base(Base::Scaler(1))]),
+                Expression::Add(vec![Expression::Mul(vec![Expression::Base(Base::Scaler(
+                    0,
+                ))])]),
+            ),
+            (
+                Expression::Add(vec![
+                    Expression::Base(Base::X(X {})),
+                    Expression::Base(Base::Scaler(1)),
+                ]),
+                Expression::Add(vec![
+                    Expression::Base(Base::Scaler(1)),
+                    Expression::Base(Base::Scaler(0)),
+                ]),
+            ),
+            (
+                Expression::Mul(vec![
+                    Expression::Base(Base::X(X {})),
+                    Expression::Base(Base::Exp(Exp {
+                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                    })),
+                ]),
+                Expression::Add(vec![
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Scaler(1)),
+                        Expression::Base(Base::Exp(Exp {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                    ]),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::X(X {})),
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Exp(Exp {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Base(Base::Scaler(1)),
+                        ]),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Mul(vec![
+                    Expression::Add(vec![
+                        Expression::Base(Base::X(X {})),
+                        Expression::Base(Base::Exp(Exp {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                    ]),
+                    Expression::Add(vec![
+                        Expression::Base(Base::X(X {})),
+                        Expression::Base(Base::Exp(Exp {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                    ]),
+                ]),
+                Expression::Add(vec![
+                    Expression::Mul(vec![
+                        Expression::Add(vec![
+                            Expression::Base(Base::Scaler(1)),
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Exp(Exp {
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                        ]),
+                        Expression::Add(vec![
+                            Expression::Base(Base::X(X {})),
+                            Expression::Base(Base::Exp(Exp {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                        ]),
+                    ]),
+                    Expression::Mul(vec![
+                        Expression::Add(vec![
+                            Expression::Base(Base::X(X {})),
+                            Expression::Base(Base::Exp(Exp {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                        ]),
+                        Expression::Add(vec![
+                            Expression::Base(Base::Scaler(1)),
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Exp(Exp {
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Add(vec![
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Sin(Sin {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                        Expression::Base(Base::Cos(Cos {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                        Expression::Base(Base::Tan(Tan {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                    ]),
+                    Expression::Mul(vec![
+                        Expression::Base(Base::Exp(Exp {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                        Expression::Base(Base::Log(Log {
+                            arg: Box::new(Expression::Base(Base::X(X {}))),
+                        })),
+                    ]),
+                ]),
+                Expression::Add(vec![
+                    Expression::Add(vec![
+                        Expression::Mul(vec![
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Cos(Cos {
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                            Expression::Base(Base::Cos(Cos {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Base(Base::Tan(Tan {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                        ]),
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Sin(Sin {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Scaler(-1)),
+                                Expression::Base(Base::Sin(Sin {
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                            Expression::Base(Base::Tan(Tan {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                        ]),
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Sin(Sin {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Base(Base::Cos(Cos {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Pow(Pow {
+                                    exp: -2,
+                                    arg: Box::new(Expression::Base(Base::Cos(Cos {
+                                        arg: Box::new(Expression::Base(Base::X(X {}))),
+                                    }))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                        ]),
+                    ]),
+                    Expression::Add(vec![
+                        Expression::Mul(vec![
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Exp(Exp {
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                            Expression::Base(Base::Log(Log {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                        ]),
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Exp(Exp {
+                                arg: Box::new(Expression::Base(Base::X(X {}))),
+                            })),
+                            Expression::Mul(vec![
+                                Expression::Base(Base::Pow(Pow {
+                                    exp: -1,
+                                    arg: Box::new(Expression::Base(Base::X(X {}))),
+                                })),
+                                Expression::Base(Base::Scaler(1)),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Base(Base::Exp(Exp {
+                    arg: Box::new(Expression::Add(vec![
+                        Expression::Base(Base::X(X {})),
+                        Expression::Base(Base::Scaler(1)),
+                    ])),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Exp(Exp {
+                        arg: Box::new(Expression::Add(vec![
+                            Expression::Base(Base::X(X {})),
+                            Expression::Base(Base::Scaler(1)),
+                        ])),
+                    })),
+                    Expression::Add(vec![
+                        Expression::Base(Base::Scaler(1)),
+                        Expression::Base(Base::Scaler(0)),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Base(Base::Sin(Sin {
+                    arg: Box::new(Expression::Mul(vec![
+                        Expression::Base(Base::Scaler(2)),
+                        Expression::Base(Base::X(X {})),
+                    ])),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Cos(Cos {
+                        arg: Box::new(Expression::Mul(vec![
+                            Expression::Base(Base::Scaler(2)),
+                            Expression::Base(Base::X(X {})),
+                        ])),
+                    })),
+                    Expression::Add(vec![
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Scaler(0)),
+                            Expression::Base(Base::X(X {})),
+                        ]),
+                        Expression::Mul(vec![
+                            Expression::Base(Base::Scaler(2)),
+                            Expression::Base(Base::Scaler(1)),
+                        ]),
+                    ]),
+                ]),
+            ),
+            (
+                Expression::Base(Base::Log(Log {
+                    arg: Box::new(Expression::Base(Base::Scaler(0))),
+                })),
+                Expression::Mul(vec![
+                    Expression::Base(Base::Pow(Pow {
                         exp: -1,
-                        arg: Box::new(Base::X(X {})),
-                    }),
-                    Base::SCALER(1),
-                ],
+                        arg: Box::new(Expression::Base(Base::Scaler(0))),
+                    })),
+                    Expression::Base(Base::Scaler(0)),
+                ]),
             ),
         ];
 
